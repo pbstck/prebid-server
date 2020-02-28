@@ -32,7 +32,7 @@ type AuctionMetadata struct {
 }
 
 func NewParser(scope string) *Parser {
-	fmt.Printf("[PBSTCK] initializing listener for scope %s", scope)
+	fmt.Printf("[PBSTCK] initializing listener for scope %s\n", scope)
 	return &Parser{
 		scope: scope,
 		uap:   &UserAgentParser{uaparser.NewFromSaved()},

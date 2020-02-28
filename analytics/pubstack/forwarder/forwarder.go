@@ -15,7 +15,7 @@ type Forwarder struct {
 }
 
 func NewForwarder(intake string) *Forwarder {
-	fmt.Printf("[PBSTCK]: preparing to forward to %s", intake)
+	fmt.Printf("[PBSTCK]: preparing to forward to %s\n", intake)
 	return &Forwarder{
 		client: http.Client{},
 		url:    intake,
