@@ -18,8 +18,12 @@ func NewPBSAnalytics(analytics *config.Analytics) analytics.PBSAnalyticsModule {
 			glog.Fatalf("Could not initialize FileLogger for file %v :%v", analytics.File.Filename, err)
 		}
 	}
-	pbstck, _ := pubstack.NewPubstackModule(analytics.Pubstack.ScopeId, analytics.Pubstack.IntakeUrl)
-	modules = append(modules, pbstck)
+	if analytics.Pubstack.Enabled {
+		pubstack, err := pubstack.NewPubstackModule(analytics.Pubstack.ScopeId, analytics.Pubstack.IntakeUrl)
+		if err == nil {
+			modules = append(modules, pubstack)
+		}
+	}
 	return modules
 }
 
