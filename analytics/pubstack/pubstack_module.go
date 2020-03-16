@@ -30,15 +30,14 @@ func (p *PubstackModule) LogAuctionObject(ao *analytics.AuctionObject) {
 	// send openrtb request
 	payload, err := jsonifyAuctionObject(ao, p.scope)
 	if err != nil {
-		fmt.Println("Cannot serialize auction, aborting, ...")
+		glog.Warning("Cannot serialize auction")
 		return
 	}
 
 	p.intake.Path = path.Join(p.intake.Path, AUCTION)
-
 	err = sendPayloadToTarget(payload, p.intake.String())
 	if err != nil {
-		fmt.Println("Issues while sending auction object to the intake")
+		glog.Warning("Issues while sending auction object to the intake")
 	}
 }
 
@@ -77,7 +76,8 @@ func NewPubstackModule(scope, intake string) (analytics.PBSAnalyticsModule, erro
 		glog.Errorf("Fail to initialize pubstack analytics: %s", err.Error())
 		return nil, fmt.Errorf("fail to reach endpoint")
 	}
-
+	// path is overriden by testEndpoint
+	URL, _ = url.Parse(intake)
 	return &PubstackModule{
 		URL,
 		scope,
