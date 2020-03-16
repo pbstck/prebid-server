@@ -5,6 +5,7 @@ import (
 	"github.com/golang/glog"
 	"github.com/mxmCherry/openrtb"
 	"net/url"
+	"path"
 
 	"github.com/prebid/prebid-server/analytics"
 )
@@ -15,7 +16,7 @@ type payload struct {
 }
 
 const (
-	AUCTION = "/v1/openrtb2/auction"
+	AUCTION = "auction"
 )
 
 //Module that can perform transactional logging
@@ -33,7 +34,7 @@ func (p *PubstackModule) LogAuctionObject(ao *analytics.AuctionObject) {
 		return
 	}
 
-	p.intake.Path = AUCTION
+	p.intake.Path = path.Join(p.intake.Path, AUCTION)
 
 	err = sendPayloadToTarget(payload, p.intake.String())
 	if err != nil {
