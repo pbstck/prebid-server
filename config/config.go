@@ -169,7 +169,8 @@ type CCPA struct {
 }
 
 type Analytics struct {
-	File FileLogs `mapstructure:"file"`
+	File     FileLogs `mapstructure:"file"`
+	Pubstack Pbstck   `mapstructure:"pubstack"`
 }
 
 type CurrencyConverter struct {
@@ -187,6 +188,12 @@ func (cfg *CurrencyConverter) validate(errs configErrors) configErrors {
 // FileLogs Corresponding config for FileLogger as a PBS Analytics Module
 type FileLogs struct {
 	Filename string `mapstructure:"filename"`
+}
+
+type Pbstck struct {
+	Enabled   bool   `mapstructure:"enabled"`
+	ScopeId   string `mapstructure:"scopeid"`
+	IntakeUrl string `mapstructure:"endpoint"`
 }
 
 type HostCookie struct {
@@ -741,6 +748,9 @@ func SetupViper(v *viper.Viper, filename string) {
 
 	v.SetDefault("max_request_size", 1024*256)
 	v.SetDefault("analytics.file.filename", "")
+	v.SetDefault("analytics.pubstack.endpoint", "https://openrtb.preview.pubstack.io/v1/openrtb2")
+	v.SetDefault("analytics.pubstack.scopeid", "test-scope")
+	v.SetDefault("analytics.pubstack.enabled", false)
 	v.SetDefault("amp_timeout_adjustment_ms", 0)
 	v.SetDefault("gdpr.host_vendor_id", 0)
 	v.SetDefault("gdpr.usersync_if_ambiguous", false)
