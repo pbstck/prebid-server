@@ -21,7 +21,7 @@ const (
 
 //Module that can perform transactional logging
 type PubstackModule struct {
-	intake *url.URL
+	intake string
 	scope  string
 }
 
@@ -34,8 +34,10 @@ func (p *PubstackModule) LogAuctionObject(ao *analytics.AuctionObject) {
 		return
 	}
 
-	p.intake.Path = path.Join(p.intake.Path, AUCTION)
-	err = sendPayloadToTarget(payload, p.intake.String())
+	target, _ := url.Parse(p.intake)
+
+	target.Path = path.Join(target.Path, AUCTION)
+	err = sendPayloadToTarget(payload, target.String())
 	if err != nil {
 		glog.Warning("Issues while sending auction object to the intake")
 	}
@@ -77,9 +79,8 @@ func NewPubstackModule(scope, intake string) (analytics.PBSAnalyticsModule, erro
 		return nil, fmt.Errorf("fail to reach endpoint")
 	}
 	// path is overriden by testEndpoint
-	URL, _ = url.Parse(intake)
 	return &PubstackModule{
-		URL,
+		intake,
 		scope,
 	}, nil
 }
