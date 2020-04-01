@@ -2,12 +2,13 @@ package pubstack
 
 import (
 	"encoding/json"
-	"github.com/magiconair/properties/assert"
-	"github.com/mxmCherry/openrtb"
-	"github.com/prebid/prebid-server/analytics"
 	"io/ioutil"
 	"os"
 	"testing"
+
+	"github.com/magiconair/properties/assert"
+	"github.com/mxmCherry/openrtb"
+	"github.com/prebid/prebid-server/analytics"
 )
 
 var IntakeURL = "http://openrtb.preview.pubstack.io/v1/openrtb2/auction"

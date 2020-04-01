@@ -1,11 +1,15 @@
 package pubstack
 
 import (
+	"bytes"
+	"compress/gzip"
 	"fmt"
-	"github.com/golang/glog"
-	"github.com/mxmCherry/openrtb"
 	"net/url"
 	"path"
+	"time"
+
+	"github.com/golang/glog"
+	"github.com/mxmCherry/openrtb"
 
 	"github.com/prebid/prebid-server/analytics"
 )
@@ -16,13 +20,73 @@ type payload struct {
 }
 
 const (
+	MAX_BUFF_EVENT_COUNT = 4
+	MAX_BUFF_SIZE_BYTES  = 2 * 1000000
+	BUFF_TIMEOUT_MINUTES = 15
+
 	AUCTION = "auction"
 )
 
 //Module that can perform transactional logging
 type PubstackModule struct {
+	c      chan []byte
 	intake string
 	scope  string
+}
+
+func sendBuffer(wr *gzip.Writer, buff *bytes.Buffer, intake, targetPath string) (*bytes.Buffer, *gzip.Writer, error) {
+	wr.Close()
+	payload := make([]byte, buff.Len())
+	_, err := buff.Read(payload)
+	if err != nil {
+		return nil, nil, err
+	}
+	buff = bytes.NewBufferString("")
+	wr = gzip.NewWriter(buff)
+
+	target, _ := url.Parse(intake)
+	target.Path = path.Join(target.Path, targetPath)
+	return buff, wr, sendPayloadToTarget(payload, target.String())
+}
+
+func handleBuffer(c chan []byte, intake string) {
+	buff := bytes.NewBufferString("")
+	gzWriter := gzip.NewWriter(buff)
+
+	tick := time.NewTicker(BUFF_TIMEOUT_MINUTES * time.Minute)
+	eventCount := 0
+
+	var err error
+
+	for {
+		select {
+		case evt := <-c:
+			// add \n to event
+			evt = append(evt, byte('\n'))
+			gzWriter.Write(evt)
+			gzWriter.Flush()
+			eventCount++
+
+			// we received an event and the buffer is full
+			if eventCount == MAX_BUFF_EVENT_COUNT || buff.Len() == MAX_BUFF_SIZE_BYTES {
+				buff, gzWriter, err = sendBuffer(gzWriter, buff, intake, AUCTION)
+				if err != nil {
+					glog.Error(err)
+				}
+				eventCount = 0
+			}
+
+		case <-tick.C:
+			// buffer has not been cleaned for the too long
+			if eventCount > 0 {
+				buff, gzWriter, err = sendBuffer(gzWriter, buff, intake, AUCTION)
+				if err != nil {
+					glog.Error(err)
+				}
+				eventCount = 0
+			}
+		}
+	}
 }
 
 //Writes AuctionObject to file
@@ -33,14 +97,7 @@ func (p *PubstackModule) LogAuctionObject(ao *analytics.AuctionObject) {
 		glog.Warning("Cannot serialize auction")
 		return
 	}
-
-	target, _ := url.Parse(p.intake)
-
-	target.Path = path.Join(target.Path, AUCTION)
-	err = sendPayloadToTarget(payload, target.String())
-	if err != nil {
-		glog.Warning("Issues while sending auction object to the intake")
-	}
+	p.c <- payload
 }
 
 //Writes VideoObject to file
@@ -65,8 +122,7 @@ func (p *PubstackModule) LogAmpObject(ao *analytics.AmpObject) {
 
 //Method to initialize the analytic module
 func NewPubstackModule(scope, intake string) (analytics.PBSAnalyticsModule, error) {
-	glog.Info("Initializing listener")
-	glog.Infof("scope: %s intake %s\n", scope, intake)
+	glog.Infof("Initializing pubstack module with scope: %s intake %s\n", scope, intake)
 
 	URL, err := url.Parse(intake)
 	if err != nil {
@@ -78,8 +134,14 @@ func NewPubstackModule(scope, intake string) (analytics.PBSAnalyticsModule, erro
 		glog.Errorf("Fail to initialize pubstack analytics: %s", err.Error())
 		return nil, fmt.Errorf("fail to reach endpoint")
 	}
+
+	chn := make(chan []byte)
+
+	go handleBuffer(chn, intake)
+
 	// path is overriden by testEndpoint
 	return &PubstackModule{
+		chn,
 		intake,
 		scope,
 	}, nil

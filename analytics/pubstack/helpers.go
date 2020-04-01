@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/prebid/prebid-server/analytics"
 	"net/http"
 	"net/url"
+
+	"github.com/golang/glog"
+	"github.com/prebid/prebid-server/analytics"
 )
 
 type RequestType string
@@ -30,11 +32,16 @@ func testEndpoint(endpoint *url.URL) error {
 }
 
 func sendPayloadToTarget(payload []byte, endpoint string) error {
-	resp, err := http.Post(endpoint, "application/json", bytes.NewBuffer(payload))
+	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
+		glog.Error(err)
 		return err
 	}
 
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Content-Encoding", "gzip")
+
+	resp, err := http.DefaultClient.Do(req)
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("wrong code received %d instead of %d", resp.StatusCode, http.StatusOK)
 	}
