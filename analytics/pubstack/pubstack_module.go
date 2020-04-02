@@ -1,15 +1,18 @@
 package pubstack
 
 import (
-	"bytes"
-	"compress/gzip"
-	"fmt"
+	"encoding/json"
+	"errors"
+	"io/ioutil"
+	"net/http"
 	"net/url"
 	"path"
 	"time"
 
 	"github.com/golang/glog"
 	"github.com/mxmCherry/openrtb"
+	"github.com/prebid/prebid-server/analytics/pubstack/eventchannel"
+	"github.com/prebid/prebid-server/analytics/pubstack/helpers"
 
 	"github.com/prebid/prebid-server/analytics"
 )
@@ -19,85 +22,82 @@ type payload struct {
 	response openrtb.BidResponse
 }
 
+type Configuration struct {
+	ScopeId        string `json:"scopeId"`
+	CookieSync     bool   `json:"cookieSync"`
+	Auction        bool   `json:"auction"`
+	Amp            bool   `json:"AMP"`
+	Video          bool   `json:"video"`
+	SetUid         bool   `json:"setUid"`
+	BufferSizeMega int64  `json:"buffSizeMega"`
+	EventCount     int64  `json:"eventCount"`
+	TimeoutMinutes int64  `json:"timeoutMinutes"`
+}
+
 const (
 	MAX_BUFF_EVENT_COUNT = 4
 	MAX_BUFF_SIZE_BYTES  = 2 * 1000000
 	BUFF_TIMEOUT_MINUTES = 15
 
-	AUCTION = "auction"
+	AUCTION    = "auction"
+	COOKIESYNC = "cookie_sync"
 )
 
 //Module that can perform transactional logging
 type PubstackModule struct {
-	c      chan []byte
-	intake string
-	scope  string
+	chans map[string]*eventchannel.Channel
+	scope string
+	cfg   *Configuration
 }
 
-func sendBuffer(wr *gzip.Writer, buff *bytes.Buffer, intake, targetPath string) (*bytes.Buffer, *gzip.Writer, error) {
-	wr.Close()
-	payload := make([]byte, buff.Len())
-	_, err := buff.Read(payload)
+func getConfiguration(scope string, intake string) (*Configuration, error) {
+	u, err := url.Parse(intake)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	buff = bytes.NewBufferString("")
-	wr = gzip.NewWriter(buff)
 
-	target, _ := url.Parse(intake)
-	target.Path = path.Join(target.Path, targetPath)
-	return buff, wr, sendPayloadToTarget(payload, target.String())
-}
+	u.Path = path.Join(u.Path, "bootstrap")
+	q, _ := url.ParseQuery(u.RawQuery)
 
-func handleBuffer(c chan []byte, intake string) {
-	buff := bytes.NewBufferString("")
-	gzWriter := gzip.NewWriter(buff)
+	q.Add("scopeId", scope)
+	u.RawQuery = q.Encode()
 
-	tick := time.NewTicker(BUFF_TIMEOUT_MINUTES * time.Minute)
-	eventCount := 0
-
-	var err error
-
-	for {
-		select {
-		case evt := <-c:
-			// add \n to event
-			evt = append(evt, byte('\n'))
-			gzWriter.Write(evt)
-			gzWriter.Flush()
-			eventCount++
-
-			// we received an event and the buffer is full
-			if eventCount == MAX_BUFF_EVENT_COUNT || buff.Len() == MAX_BUFF_SIZE_BYTES {
-				buff, gzWriter, err = sendBuffer(gzWriter, buff, intake, AUCTION)
-				if err != nil {
-					glog.Error(err)
-				}
-				eventCount = 0
-			}
-
-		case <-tick.C:
-			// buffer has not been cleaned for the too long
-			if eventCount > 0 {
-				buff, gzWriter, err = sendBuffer(gzWriter, buff, intake, AUCTION)
-				if err != nil {
-					glog.Error(err)
-				}
-				eventCount = 0
-			}
-		}
+	res, err := http.DefaultClient.Get(u.String())
+	if err != nil {
+		return nil, err
 	}
+
+	defer res.Body.Close()
+	data, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return nil, errors.New("fail to read payload body")
+	}
+	c := Configuration{}
+
+	err = json.Unmarshal(data, &c)
+	if err != nil {
+		return nil, err
+	}
+	glog.Info(c)
+	return &c, nil
 }
 
 //Writes AuctionObject to file
 func (p *PubstackModule) LogAuctionObject(ao *analytics.AuctionObject) {
-	// send openrtb request
-	payload, err := jsonifyAuctionObject(ao, p.scope)
+	// check if we have to send auctions events
+	ch, ok := p.chans["auctions"]
+	if !ok {
+		return
+	}
+
+	// serialize event
+	payload, err := helpers.JsonifyAuctionObject(ao, p.scope)
 	if err != nil {
 		glog.Warning("Cannot serialize auction")
 		return
 	}
-	p.c <- payload
+
+	ch.Add(payload)
 }
 
 //Writes VideoObject to file
@@ -124,25 +124,20 @@ func (p *PubstackModule) LogAmpObject(ao *analytics.AmpObject) {
 func NewPubstackModule(scope, intake string) (analytics.PBSAnalyticsModule, error) {
 	glog.Infof("Initializing pubstack module with scope: %s intake %s\n", scope, intake)
 
-	URL, err := url.Parse(intake)
+	config, err := getConfiguration(scope, intake)
 	if err != nil {
-		glog.Errorf("Fail to initialize pubstack analytics: %s", err.Error())
-		return nil, fmt.Errorf("endpoint url is invalid")
+		glog.Errorf("Fail to initialize pubstack module due to %s\n", err.Error())
 	}
 
-	if err := testEndpoint(URL); err != nil {
-		glog.Errorf("Fail to initialize pubstack analytics: %s", err.Error())
-		return nil, fmt.Errorf("fail to reach endpoint")
-	}
+	chanMap := make(map[string]*eventchannel.Channel)
+	// enable auction forward
 
-	chn := make(chan []byte)
+	chanMap["auctions"] = eventchannel.NewChannel(intake, AUCTION, MAX_BUFF_SIZE_BYTES, MAX_BUFF_EVENT_COUNT, BUFF_TIMEOUT_MINUTES*time.Minute)
+	chanMap["cookieSync"] = eventchannel.NewChannel(intake, COOKIESYNC, MAX_BUFF_SIZE_BYTES, MAX_BUFF_EVENT_COUNT, BUFF_TIMEOUT_MINUTES*time.Minute)
 
-	go handleBuffer(chn, intake)
-
-	// path is overriden by testEndpoint
 	return &PubstackModule{
-		chn,
-		intake,
+		chanMap,
 		scope,
+		config,
 	}, nil
 }
