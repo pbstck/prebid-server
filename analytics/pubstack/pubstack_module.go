@@ -41,6 +41,9 @@ const (
 
 	AUCTION    = "auction"
 	COOKIESYNC = "cookie_sync"
+	AMP        = "amp"
+	SETUID     = "setuid"
+	VIDEO      = "video"
 )
 
 //Module that can perform transactional logging
@@ -85,7 +88,7 @@ func getConfiguration(scope string, intake string) (*Configuration, error) {
 //Writes AuctionObject to file
 func (p *PubstackModule) LogAuctionObject(ao *analytics.AuctionObject) {
 	// check if we have to send auctions events
-	ch, ok := p.chans["auctions"]
+	ch, ok := p.chans[AUCTION]
 	if !ok {
 		return
 	}
@@ -102,22 +105,74 @@ func (p *PubstackModule) LogAuctionObject(ao *analytics.AuctionObject) {
 
 //Writes VideoObject to file
 func (p *PubstackModule) LogVideoObject(vo *analytics.VideoObject) {
-	return
+	// check if we have to send auctions events
+	ch, ok := p.chans[VIDEO]
+	if !ok {
+		return
+	}
+
+	// serialize event
+	payload, err := helpers.JsonifyVideoObject(vo, p.scope)
+	if err != nil {
+		glog.Warning("Cannot serialize video")
+		return
+	}
+
+	ch.Add(payload)
 }
 
 //Logs SetUIDObject to file
 func (p *PubstackModule) LogSetUIDObject(so *analytics.SetUIDObject) {
-	return
+	// check if we have to send auctions events
+	ch, ok := p.chans[SETUID]
+	if !ok {
+		return
+	}
+
+	// serialize event
+	payload, err := helpers.JsonifySetUIDObject(so, p.scope)
+	if err != nil {
+		glog.Warning("Cannot serialize video")
+		return
+	}
+
+	ch.Add(payload)
 }
 
 //Logs CookieSyncObject to file
 func (p *PubstackModule) LogCookieSyncObject(cso *analytics.CookieSyncObject) {
-	return
+	// check if we have to send auctions events
+	ch, ok := p.chans[VIDEO]
+	if !ok {
+		return
+	}
+
+	// serialize event
+	payload, err := helpers.JsonifyCookieSync(cso, p.scope)
+	if err != nil {
+		glog.Warning("Cannot serialize video")
+		return
+	}
+
+	ch.Add(payload)
 }
 
 //Logs AmpObject to file
 func (p *PubstackModule) LogAmpObject(ao *analytics.AmpObject) {
-	return
+	// check if we have to send auctions events
+	ch, ok := p.chans[VIDEO]
+	if !ok {
+		return
+	}
+
+	// serialize event
+	payload, err := helpers.JsonifyAmpObject(ao, p.scope)
+	if err != nil {
+		glog.Warning("Cannot serialize video")
+		return
+	}
+
+	ch.Add(payload)
 }
 
 //Method to initialize the analytic module
@@ -132,8 +187,21 @@ func NewPubstackModule(scope, intake string) (analytics.PBSAnalyticsModule, erro
 	chanMap := make(map[string]*eventchannel.Channel)
 	// enable auction forward
 
-	chanMap["auctions"] = eventchannel.NewChannel(intake, AUCTION, MAX_BUFF_SIZE_BYTES, MAX_BUFF_EVENT_COUNT, BUFF_TIMEOUT_MINUTES*time.Minute)
-	chanMap["cookieSync"] = eventchannel.NewChannel(intake, COOKIESYNC, MAX_BUFF_SIZE_BYTES, MAX_BUFF_EVENT_COUNT, BUFF_TIMEOUT_MINUTES*time.Minute)
+	if config.Amp {
+		chanMap[AMP] = eventchannel.NewChannel(intake, AMP, config.BufferSizeMega, config.EventCount, time.Duration(config.TimeoutMinutes)*time.Minute)
+	}
+	if config.Auction {
+		chanMap[AUCTION] = eventchannel.NewChannel(intake, AUCTION, config.BufferSizeMega, config.EventCount, time.Duration(config.TimeoutMinutes)*time.Minute)
+	}
+	if config.CookieSync {
+		chanMap[COOKIESYNC] = eventchannel.NewChannel(intake, COOKIESYNC, config.BufferSizeMega, config.EventCount, time.Duration(config.TimeoutMinutes)*time.Minute)
+	}
+	if config.Video {
+		chanMap[VIDEO] = eventchannel.NewChannel(intake, VIDEO, config.BufferSizeMega, config.EventCount, time.Duration(config.TimeoutMinutes)*time.Minute)
+	}
+	if config.SetUid {
+		chanMap[SETUID] = eventchannel.NewChannel(intake, SETUID, config.BufferSizeMega, config.EventCount, time.Duration(config.TimeoutMinutes)*time.Minute)
+	}
 
 	return &PubstackModule{
 		chanMap,
