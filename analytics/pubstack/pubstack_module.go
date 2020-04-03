@@ -34,11 +34,8 @@ type Configuration struct {
 	TimeoutMinutes int64  `json:"timeoutMinutes"`
 }
 
+// routes for events
 const (
-	MAX_BUFF_EVENT_COUNT = 4
-	MAX_BUFF_SIZE_BYTES  = 2 * 1000000
-	BUFF_TIMEOUT_MINUTES = 15
-
 	AUCTION    = "auction"
 	COOKIESYNC = "cookie_sync"
 	AMP        = "amp"
@@ -46,7 +43,6 @@ const (
 	VIDEO      = "video"
 )
 
-//Module that can perform transactional logging
 type PubstackModule struct {
 	chans map[string]*eventchannel.Channel
 	scope string
@@ -85,7 +81,6 @@ func getConfiguration(scope string, intake string) (*Configuration, error) {
 	return &c, nil
 }
 
-//Writes AuctionObject to file
 func (p *PubstackModule) LogAuctionObject(ao *analytics.AuctionObject) {
 	// check if we have to send auctions events
 	ch, ok := p.chans[AUCTION]
@@ -103,7 +98,6 @@ func (p *PubstackModule) LogAuctionObject(ao *analytics.AuctionObject) {
 	ch.Add(payload)
 }
 
-//Writes VideoObject to file
 func (p *PubstackModule) LogVideoObject(vo *analytics.VideoObject) {
 	// check if we have to send auctions events
 	ch, ok := p.chans[VIDEO]
@@ -121,7 +115,6 @@ func (p *PubstackModule) LogVideoObject(vo *analytics.VideoObject) {
 	ch.Add(payload)
 }
 
-//Logs SetUIDObject to file
 func (p *PubstackModule) LogSetUIDObject(so *analytics.SetUIDObject) {
 	// check if we have to send auctions events
 	ch, ok := p.chans[SETUID]
@@ -139,7 +132,6 @@ func (p *PubstackModule) LogSetUIDObject(so *analytics.SetUIDObject) {
 	ch.Add(payload)
 }
 
-//Logs CookieSyncObject to file
 func (p *PubstackModule) LogCookieSyncObject(cso *analytics.CookieSyncObject) {
 	// check if we have to send auctions events
 	ch, ok := p.chans[VIDEO]
@@ -157,7 +149,6 @@ func (p *PubstackModule) LogCookieSyncObject(cso *analytics.CookieSyncObject) {
 	ch.Add(payload)
 }
 
-//Logs AmpObject to file
 func (p *PubstackModule) LogAmpObject(ao *analytics.AmpObject) {
 	// check if we have to send auctions events
 	ch, ok := p.chans[VIDEO]
@@ -175,7 +166,6 @@ func (p *PubstackModule) LogAmpObject(ao *analytics.AmpObject) {
 	ch.Add(payload)
 }
 
-//Method to initialize the analytic module
 func NewPubstackModule(scope, intake string) (analytics.PBSAnalyticsModule, error) {
 	glog.Infof("Initializing pubstack module with scope: %s intake %s\n", scope, intake)
 

@@ -5,7 +5,10 @@ import (
 	"compress/gzip"
 	"net/http"
 	"net/url"
+	"os"
+	"os/signal"
 	"path"
+	"syscall"
 	"time"
 
 	"github.com/golang/glog"
@@ -45,11 +48,16 @@ func (c *Channel) Add(event []byte) {
 	c.ch <- event
 }
 
-func (c *Channel) forward(maxSize, maxCount int64, maxTime time.Duration) {
+func (c *Channel) forward(maxSize, maxCount int64, maxTime time.Duration, termCh chan os.Signal) {
 	ticker := time.NewTicker(maxTime)
 
 	for {
 		select {
+		// termination received
+		case <-termCh:
+			glog.Info("termination signal received")
+			c.flush()
+			return
 		// event is received
 		case event := <-c.ch:
 			_, err := c.gz.Write(event)
@@ -119,6 +127,10 @@ func NewChannel(intake, route string, maxSize, maxCount int64, maxTime time.Dura
 		ch:      make(chan []byte),
 		metrics: ChannelMetrics{},
 	}
-	go c.forward(maxSize, maxCount, maxTime)
+
+	termCh := make(chan os.Signal)
+	signal.Notify(termCh, os.Interrupt, syscall.SIGTERM)
+
+	go c.forward(maxSize, maxCount, maxTime, termCh)
 	return &c
 }
