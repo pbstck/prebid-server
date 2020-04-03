@@ -1,7 +1,7 @@
 # Pubstack Analytics
 
 In order to use the pubstack analytics module. One should configure it first.
-Configuration of the module is the same as the rest of prebid server:
+Configuration of the module is made in the same fashion as other prebid server configuration.
 
 You can either configure the server using the following environment variables:
 
