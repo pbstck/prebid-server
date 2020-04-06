@@ -6,9 +6,13 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"os"
+	"os/signal"
 	"path"
+	"syscall"
 	"time"
 
+	units "github.com/docker/go-units"
 	"github.com/golang/glog"
 	"github.com/mxmCherry/openrtb"
 	"github.com/prebid/prebid-server/analytics/pubstack/eventchannel"
@@ -23,62 +27,103 @@ type payload struct {
 }
 
 type Configuration struct {
-	ScopeId        string `json:"scopeId"`
-	CookieSync     bool   `json:"cookieSync"`
-	Auction        bool   `json:"auction"`
-	Amp            bool   `json:"AMP"`
-	Video          bool   `json:"video"`
-	SetUid         bool   `json:"setUid"`
-	BufferSizeMega int64  `json:"buffSizeMega"`
-	EventCount     int64  `json:"eventCount"`
-	TimeoutMinutes int64  `json:"timeoutMinutes"`
+	ScopeId  string          `json:"scopeId"`
+	Endpoint string          `json:"endpoint"`
+	Features map[string]bool `json:"features"`
 }
 
 // routes for events
 const (
 	AUCTION    = "auction"
-	COOKIESYNC = "cookie_sync"
+	COOKIESYNC = "cookiesync"
 	AMP        = "amp"
 	SETUID     = "setuid"
 	VIDEO      = "video"
 )
 
-type PubstackModule struct {
-	chans map[string]*eventchannel.Channel
-	scope string
-	cfg   *Configuration
+type bufferConfig struct {
+	timeout time.Duration
+	count   int64
+	size    int64
 }
 
-func getConfiguration(scope string, intake string) (*Configuration, error) {
-	u, err := url.Parse(intake)
+func newBufferConfig(count int, size, duration string) (*bufferConfig, error) {
+	pDuration, err := time.ParseDuration(duration)
 	if err != nil {
 		return nil, err
 	}
-
-	u.Path = path.Join(u.Path, "bootstrap")
-	q, _ := url.ParseQuery(u.RawQuery)
-
-	q.Add("scopeId", scope)
-	u.RawQuery = q.Encode()
-
-	res, err := http.DefaultClient.Get(u.String())
+	pSize, err := units.FromHumanSize(size)
 	if err != nil {
 		return nil, err
 	}
+	return &bufferConfig{
+		pDuration,
+		int64(count),
+		pSize,
+	}, nil
+}
 
-	defer res.Body.Close()
-	data, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return nil, errors.New("fail to read payload body")
-	}
-	c := Configuration{}
+type PubstackModule struct {
+	chans    map[string]*eventchannel.Channel
+	scope    string
+	cfg      *Configuration
+	buffsCfg *bufferConfig
+}
 
-	err = json.Unmarshal(data, &c)
+func NewPubstackModule(scope, intake, refreshConf string, evtCount int, size, duration string) (analytics.PBSAnalyticsModule, error) {
+	glog.Infof("Initializing pubstack module with scope: %s intake %s\n", scope, intake)
+
+	refreshDelay, err := time.ParseDuration(refreshConf)
 	if err != nil {
+		glog.Error("Fail to parse refresh duration")
 		return nil, err
 	}
-	glog.Info(c)
-	return &c, nil
+
+	config, err := getConfiguration(scope, intake)
+	if err != nil {
+		glog.Errorf("Fail to initialize pubstack module due to %s\n", err.Error())
+		return nil, err
+	}
+
+	bufferCfg, err := newBufferConfig(evtCount, size, duration)
+
+	pb := PubstackModule{
+		scope:    scope,
+		cfg:      config,
+		buffsCfg: bufferCfg,
+	}
+
+	pb.applyConfiguration(config)
+
+	// handle termination in goroutine
+	endCh := make(chan os.Signal)
+	signal.Notify(endCh, os.Interrupt, syscall.SIGTERM)
+	go pb.refreshConfiguration(refreshDelay, endCh)
+
+	return &pb, nil
+}
+
+func (p *PubstackModule) applyConfiguration(cfg *Configuration) {
+	newChanMap := make(map[string]*eventchannel.Channel)
+
+	if cfg.Features[AMP] {
+		newChanMap[AMP] = eventchannel.NewChannel(cfg.Endpoint, AMP, p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
+	}
+	if cfg.Features[AUCTION] {
+		newChanMap[AUCTION] = eventchannel.NewChannel(cfg.Endpoint, AUCTION, p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
+	}
+	if cfg.Features[COOKIESYNC] {
+		newChanMap[COOKIESYNC] = eventchannel.NewChannel(cfg.Endpoint, COOKIESYNC, p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
+	}
+	if cfg.Features[VIDEO] {
+		newChanMap[VIDEO] = eventchannel.NewChannel(cfg.Endpoint, VIDEO, p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
+	}
+	if cfg.Features[SETUID] {
+		newChanMap[SETUID] = eventchannel.NewChannel(cfg.Endpoint, SETUID, p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
+	}
+
+	p.chans = newChanMap
+	p.cfg = cfg
 }
 
 func (p *PubstackModule) LogAuctionObject(ao *analytics.AuctionObject) {
@@ -166,36 +211,66 @@ func (p *PubstackModule) LogAmpObject(ao *analytics.AmpObject) {
 	ch.Add(payload)
 }
 
-func NewPubstackModule(scope, intake string) (analytics.PBSAnalyticsModule, error) {
-	glog.Infof("Initializing pubstack module with scope: %s intake %s\n", scope, intake)
+func (p *PubstackModule) refreshConfiguration(waitPeriod time.Duration, end chan os.Signal) {
+	tick := time.NewTicker(waitPeriod)
 
-	config, err := getConfiguration(scope, intake)
+	for {
+		select {
+		case <-tick.C:
+			config, err := getConfiguration(p.cfg.ScopeId, p.cfg.Endpoint)
+			if err != nil {
+				glog.Error("fail to update configuration")
+				continue
+			}
+			p.applyConfiguration(config)
+		case <-end:
+			return
+		}
+	}
+}
+
+func getConfiguration(scope string, intake string) (*Configuration, error) {
+	u, err := url.Parse(intake)
 	if err != nil {
-		glog.Errorf("Fail to initialize pubstack module due to %s\n", err.Error())
+		return nil, err
 	}
 
-	chanMap := make(map[string]*eventchannel.Channel)
-	// enable auction forward
+	u.Path = path.Join(u.Path, "bootstrap")
+	q, _ := url.ParseQuery(u.RawQuery)
 
-	if config.Amp {
-		chanMap[AMP] = eventchannel.NewChannel(intake, AMP, config.BufferSizeMega, config.EventCount, time.Duration(config.TimeoutMinutes)*time.Minute)
-	}
-	if config.Auction {
-		chanMap[AUCTION] = eventchannel.NewChannel(intake, AUCTION, config.BufferSizeMega, config.EventCount, time.Duration(config.TimeoutMinutes)*time.Minute)
-	}
-	if config.CookieSync {
-		chanMap[COOKIESYNC] = eventchannel.NewChannel(intake, COOKIESYNC, config.BufferSizeMega, config.EventCount, time.Duration(config.TimeoutMinutes)*time.Minute)
-	}
-	if config.Video {
-		chanMap[VIDEO] = eventchannel.NewChannel(intake, VIDEO, config.BufferSizeMega, config.EventCount, time.Duration(config.TimeoutMinutes)*time.Minute)
-	}
-	if config.SetUid {
-		chanMap[SETUID] = eventchannel.NewChannel(intake, SETUID, config.BufferSizeMega, config.EventCount, time.Duration(config.TimeoutMinutes)*time.Minute)
+	q.Add("scopeId", scope)
+	u.RawQuery = q.Encode()
+
+	res, err := http.DefaultClient.Get(u.String())
+	if err != nil {
+		return nil, err
 	}
 
-	return &PubstackModule{
-		chanMap,
-		scope,
-		config,
-	}, nil
+	defer res.Body.Close()
+	data, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return nil, errors.New("fail to read payload body")
+	}
+	c := Configuration{}
+
+	err = json.Unmarshal(data, &c)
+	if err != nil {
+		return nil, err
+	}
+	glog.Info(c)
+	return &c, nil
+}
+
+func parseBuffersConfiguration(size, duration string) (int64, *time.Duration, error) {
+	u, err := units.FromHumanSize(size)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	pdur, err := time.ParseDuration(duration)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	return u, &pdur, nil
 }

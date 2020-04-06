@@ -189,9 +189,17 @@ type FileLogs struct {
 }
 
 type Pbstck struct {
-	Enabled   bool   `mapstructure:"enabled"`
-	ScopeId   string `mapstructure:"scopeid"`
-	IntakeUrl string `mapstructure:"endpoint"`
+	Enabled     bool         `mapstructure:"enabled"`
+	ScopeId     string       `mapstructure:"scopeid"`
+	IntakeUrl   string       `mapstructure:"endpoint"`
+	Buffers     PbstckBuffer `mapstructure:"buffers"`
+	ConfRefresh string       `mapstructure:"configuration_refresh_delay"`
+}
+
+type PbstckBuffer struct {
+	BufferSize string `mapstructure:"size"`
+	EventCount int    `mapstructure:"count"`
+	Timeout    string `mapstructure:"timeout"`
 }
 
 type HostCookie struct {
@@ -737,6 +745,10 @@ func SetupViper(v *viper.Viper, filename string) {
 	v.SetDefault("analytics.pubstack.endpoint", "https://openrtb.preview.pubstack.io/v1/openrtb2")
 	v.SetDefault("analytics.pubstack.scopeid", "test-scope")
 	v.SetDefault("analytics.pubstack.enabled", false)
+	v.SetDefault("analytics.pubstack.configuration_refresh_delay", "2h")
+	v.SetDefault("analytics.pubstack.buffers.size", "2MB")
+	v.SetDefault("analytics.pubstack.buffers.count", 100)
+	v.SetDefault("analytics.pubstack.buffers.timeout", "900s")
 	v.SetDefault("amp_timeout_adjustment_ms", 0)
 	v.SetDefault("gdpr.host_vendor_id", 0)
 	v.SetDefault("gdpr.usersync_if_ambiguous", false)

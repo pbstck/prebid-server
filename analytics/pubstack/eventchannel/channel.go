@@ -108,6 +108,9 @@ func (c *Channel) flush() {
 	resp, err := http.DefaultClient.Do(req)
 	glog.Error(resp)
 	glog.Error(err)
+	if err != nil {
+		return
+	}
 	if resp.StatusCode != http.StatusOK {
 		glog.Errorf("wrong code received %d instead of %d", resp.StatusCode, http.StatusOK)
 		return
