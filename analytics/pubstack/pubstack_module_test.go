@@ -97,7 +97,7 @@ func mockEvent(w http.ResponseWriter, r *http.Request) {
 
 func mockedServer() {
 	http.HandleFunc("/bootstrap", mockBoot)
-	http.HandleFunc("/auction", mockEvent)
+	http.HandleFunc("/intake/auction", mockEvent)
 	http.ListenAndServe(":11287", nil)
 }
 
