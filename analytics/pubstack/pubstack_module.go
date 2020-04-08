@@ -269,7 +269,7 @@ func NewPubstackModule(scope, intake, refreshConf string, evtCount int, size, du
 	// handle termination in goroutine
 	endCh := make(chan os.Signal)
 	signal.Notify(endCh, os.Interrupt, syscall.SIGTERM)
-	glog.Info("dc up ")
+	glog.Info("Pubstack analytics configured and ready")
 	go pb.refreshConfiguration(refreshDelay, endCh)
 
 	return &pb, nil
