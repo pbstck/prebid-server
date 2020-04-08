@@ -14,15 +14,6 @@ import (
 	"github.com/golang/glog"
 )
 
-func (c *Channel) printMetrics() {
-	glog.Infof(
-		"event %d size %d errors %d",
-		c.metrics.eventCount,
-		c.metrics.bufferSize,
-		c.metrics.eventError,
-	)
-}
-
 func (c *Channel) resetMetrics() {
 	c.metrics.eventCount = 0
 	c.metrics.bufferSize = 0
@@ -79,7 +70,6 @@ func (c *Channel) forward(maxSize, maxCount int64, maxTime time.Duration, termCh
 }
 
 func (c *Channel) flush() {
-	c.printMetrics()
 	c.resetMetrics()
 	// finish writing gzip header
 	c.gz.Close()
@@ -106,8 +96,6 @@ func (c *Channel) flush() {
 	req.Header.Set("Content-Encoding", "gzip")
 
 	resp, err := http.DefaultClient.Do(req)
-	glog.Error(resp)
-	glog.Error(err)
 	if err != nil {
 		return
 	}
@@ -119,7 +107,7 @@ func (c *Channel) flush() {
 
 func NewChannel(intake, route string, maxSize, maxCount int64, maxTime time.Duration) *Channel {
 	u, _ := url.Parse(intake)
-	u.Path = path.Join(u.Path, route)
+	u.Path = path.Join(u.Path, "intake", route)
 
 	b := bytes.NewBufferString("")
 	gzw := gzip.NewWriter(b)

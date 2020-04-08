@@ -70,39 +70,6 @@ type PubstackModule struct {
 	buffsCfg *bufferConfig
 }
 
-func NewPubstackModule(scope, intake, refreshConf string, evtCount int, size, duration string) (analytics.PBSAnalyticsModule, error) {
-	glog.Infof("Initializing pubstack module with scope: %s intake %s\n", scope, intake)
-
-	refreshDelay, err := time.ParseDuration(refreshConf)
-	if err != nil {
-		glog.Error("Fail to parse refresh duration")
-		return nil, err
-	}
-
-	config, err := getConfiguration(scope, intake)
-	if err != nil {
-		glog.Errorf("Fail to initialize pubstack module due to %s\n", err.Error())
-		return nil, err
-	}
-
-	bufferCfg, err := newBufferConfig(evtCount, size, duration)
-
-	pb := PubstackModule{
-		scope:    scope,
-		cfg:      config,
-		buffsCfg: bufferCfg,
-	}
-
-	pb.applyConfiguration(config)
-
-	// handle termination in goroutine
-	endCh := make(chan os.Signal)
-	signal.Notify(endCh, os.Interrupt, syscall.SIGTERM)
-	go pb.refreshConfiguration(refreshDelay, endCh)
-
-	return &pb, nil
-}
-
 func (p *PubstackModule) applyConfiguration(cfg *Configuration) {
 	newChanMap := make(map[string]*eventchannel.Channel)
 
@@ -257,7 +224,6 @@ func getConfiguration(scope string, intake string) (*Configuration, error) {
 	if err != nil {
 		return nil, err
 	}
-	glog.Info(c)
 	return &c, nil
 }
 
@@ -273,4 +239,38 @@ func parseBuffersConfiguration(size, duration string) (int64, *time.Duration, er
 	}
 
 	return u, &pdur, nil
+}
+
+func NewPubstackModule(scope, intake, refreshConf string, evtCount int, size, duration string) (analytics.PBSAnalyticsModule, error) {
+	glog.Infof("Initializing pubstack module with scope: %s intake %s\n", scope, intake)
+
+	refreshDelay, err := time.ParseDuration(refreshConf)
+	if err != nil {
+		glog.Error("Fail to read configuration refresh duration")
+		return nil, err
+	}
+
+	config, err := getConfiguration(scope, intake)
+	if err != nil {
+		glog.Errorf("Fail to initialize pubstack module, fail to acquire configuration\n")
+		return nil, err
+	}
+
+	bufferCfg, err := newBufferConfig(evtCount, size, duration)
+
+	pb := PubstackModule{
+		scope:    scope,
+		cfg:      config,
+		buffsCfg: bufferCfg,
+	}
+
+	pb.applyConfiguration(config)
+
+	// handle termination in goroutine
+	endCh := make(chan os.Signal)
+	signal.Notify(endCh, os.Interrupt, syscall.SIGTERM)
+	glog.Info("dc up ")
+	go pb.refreshConfiguration(refreshDelay, endCh)
+
+	return &pb, nil
 }
