@@ -56,26 +56,3 @@ This project is in its infancy, and many things can be improved.
 Report bugs, request features, and suggest improvements [on Github](https://github.com/prebid/prebid-server/issues).
 
 Or better yet, [open a pull request](https://github.com/prebid/prebid-server/compare) with the changes you'd like to see.
-
-## Pubstack Analytics
-
-In order to use the pubstack analytics module. One should configure it first.
-Configuration of the module is the same as the rest of prebid server:
-
-You can either configure the server using the following environment variables:
-
-```bash
-export PBS_ANALYTICS_PUBSTACK_ENABLED="true"
-export PBS_ANALYTICS_PUBSTACK_ENDPOINT="https://openrtb.preview.pubstack.io/v1/openrtb2"
-export PBS_ANALYTICS_PUBSTACK_SCOPEID=<your scopeId here> # should be an UUIDv4
-```
-
-Or using the pbs configuration file and by appending the following block:
-
-```yaml
-analytics:
-    pubstack:
-      enabled: true
-      endpoint: "https://openrtb.preview.pubstack.io/v1/openrtb2"
-      scopeid: <your scopeId here> # should be an UUIDv4
-```
