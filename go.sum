@@ -82,6 +82,8 @@ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZb
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/prebid/go-gdpr v0.6.0 h1:/GKrygGkUbsgd96HIkjAu7/6CHtRedvcojRtfAd4Igc=
 github.com/prebid/go-gdpr v0.6.0/go.mod h1:FPY0uxSrl9/Mz237LnPo3ge4aCG0wQ9FWf2b4WhwNn0=
+github.com/prebid/go-gdpr v0.7.0 h1:m4E/FjUhTBMciDsd3lQlbzFyXLzNK+JQkFmInJpFAwc=
+github.com/prebid/go-gdpr v0.7.0/go.mod h1:FPY0uxSrl9/Mz237LnPo3ge4aCG0wQ9FWf2b4WhwNn0=
 github.com/prometheus/client_golang v0.0.0-20180623155954-77e8f2ddcfed h1:0dloFFFNNDG7c+8qtkYw2FdADrWy9s5cI8wHp6tK3Mg=
 github.com/prometheus/client_golang v0.0.0-20180623155954-77e8f2ddcfed/go.mod h1:7SWBe2y4D6OKWSNQJUaRYU/AaXPKyh/dDVn+NZz0KFw=
 github.com/prometheus/client_model v0.0.0-20180712105110-5c3871d89910 h1:idejC8f05m9MGOsuEi1ATq9shN03HrxNkD/luQvxCv8=
@@ -114,6 +116,7 @@ github.com/spf13/viper v1.1.0/go.mod h1:A8kyI5cUJhb8N+3pkfONlcEcZbueH6nhAm0Fq7Sr
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/objx v0.1.1 h1:2vfRuCMp5sSVIDSqO8oNnWJq7mPa6KVP3iPIwFBuy8A=
 github.com/stretchr/objx v0.1.1/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
+github.com/stretchr/testify v1.2.2/go.mod h1:a8OnRcib4nhh0OaRAV+Yts87kKdq0PP7pXfy6kDkUVs=
 github.com/stretchr/testify v1.3.0 h1:TivCn/peBQ7UY8ooIcPgZFpTNSz0Q2U6UrFlUfqbe0Q=
 github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UVUgZn+9EI=
 github.com/stretchr/testify v1.4.0 h1:2E4SXV/wtOkTonXsotYi4li6zVWxYlZuYNCXe9XRJyk=
