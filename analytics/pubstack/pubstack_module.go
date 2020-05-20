@@ -146,7 +146,7 @@ func (p *PubstackModule) LogSetUIDObject(so *analytics.SetUIDObject) {
 
 func (p *PubstackModule) LogCookieSyncObject(cso *analytics.CookieSyncObject) {
 	// check if we have to send auctions events
-	ch, ok := p.chans[VIDEO]
+	ch, ok := p.chans[COOKIESYNC]
 	if !ok {
 		return
 	}
@@ -163,7 +163,7 @@ func (p *PubstackModule) LogCookieSyncObject(cso *analytics.CookieSyncObject) {
 
 func (p *PubstackModule) LogAmpObject(ao *analytics.AmpObject) {
 	// check if we have to send auctions events
-	ch, ok := p.chans[VIDEO]
+	ch, ok := p.chans[AMP]
 	if !ok {
 		return
 	}
