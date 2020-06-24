@@ -19,7 +19,7 @@ func NewPBSAnalytics(analytics *config.Analytics) analytics.PBSAnalyticsModule {
 		}
 	}
 	if analytics.Pubstack.Enabled {
-		pubstack, err := pubstack.NewPubstackModule(
+		pubstackModule, err := pubstack.NewPubstackModule(
 			analytics.Pubstack.ScopeId,
 			analytics.Pubstack.IntakeUrl,
 			analytics.Pubstack.ConfRefresh,
@@ -27,7 +27,7 @@ func NewPBSAnalytics(analytics *config.Analytics) analytics.PBSAnalyticsModule {
 			analytics.Pubstack.Buffers.BufferSize,
 			analytics.Pubstack.Buffers.Timeout)
 		if err == nil {
-			modules = append(modules, pubstack)
+			modules = append(modules, pubstackModule)
 		}
 	}
 	return modules

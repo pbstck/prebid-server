@@ -62,32 +62,32 @@ type PubstackModule struct {
 	buffsCfg      *bufferConfig
 }
 
-func buildUrlEndpoint(baseUrl string, module string) *url.URL {
+func buildEndpointSender(baseUrl string, module string) eventchannel.Sender {
 	endpoint, err := url.Parse(baseUrl)
 	if err != nil {
 		glog.Fatal(err)
 	}
 	endpoint.Path = path.Join(endpoint.Path, "intake", module)
-	return endpoint
+	return eventchannel.NewHttpSender(endpoint.String())
 }
 
 func (p *PubstackModule) applyConfiguration(cfg *Configuration) {
 	newEventChannelMap := make(map[string]*eventchannel.EventChannel)
 
 	if cfg.Features[amp] {
-		newEventChannelMap[amp] = eventchannel.NewEventChannel(buildUrlEndpoint(cfg.Endpoint, amp), p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
+		newEventChannelMap[amp] = eventchannel.NewEventChannel(buildEndpointSender(cfg.Endpoint, amp), p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
 	}
 	if cfg.Features[auction] {
-		newEventChannelMap[auction] = eventchannel.NewEventChannel(buildUrlEndpoint(cfg.Endpoint, auction), p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
+		newEventChannelMap[auction] = eventchannel.NewEventChannel(buildEndpointSender(cfg.Endpoint, auction), p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
 	}
 	if cfg.Features[cookieSync] {
-		newEventChannelMap[cookieSync] = eventchannel.NewEventChannel(buildUrlEndpoint(cfg.Endpoint, cookieSync), p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
+		newEventChannelMap[cookieSync] = eventchannel.NewEventChannel(buildEndpointSender(cfg.Endpoint, cookieSync), p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
 	}
 	if cfg.Features[VIDEO] {
-		newEventChannelMap[VIDEO] = eventchannel.NewEventChannel(buildUrlEndpoint(cfg.Endpoint, VIDEO), p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
+		newEventChannelMap[VIDEO] = eventchannel.NewEventChannel(buildEndpointSender(cfg.Endpoint, VIDEO), p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
 	}
 	if cfg.Features[setUiud] {
-		newEventChannelMap[setUiud] = eventchannel.NewEventChannel(buildUrlEndpoint(cfg.Endpoint, setUiud), p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
+		newEventChannelMap[setUiud] = eventchannel.NewEventChannel(buildEndpointSender(cfg.Endpoint, setUiud), p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
 	}
 
 	p.eventChannels = newEventChannelMap
@@ -108,7 +108,7 @@ func (p *PubstackModule) LogAuctionObject(ao *analytics.AuctionObject) {
 		return
 	}
 
-	ch.Add(payload)
+	ch.Push(payload)
 }
 
 func (p *PubstackModule) LogVideoObject(vo *analytics.VideoObject) {
@@ -125,7 +125,7 @@ func (p *PubstackModule) LogVideoObject(vo *analytics.VideoObject) {
 		return
 	}
 
-	ch.Add(payload)
+	ch.Push(payload)
 }
 
 func (p *PubstackModule) LogSetUIDObject(so *analytics.SetUIDObject) {
@@ -142,7 +142,7 @@ func (p *PubstackModule) LogSetUIDObject(so *analytics.SetUIDObject) {
 		return
 	}
 
-	ch.Add(payload)
+	ch.Push(payload)
 }
 
 func (p *PubstackModule) LogCookieSyncObject(cso *analytics.CookieSyncObject) {
@@ -159,7 +159,7 @@ func (p *PubstackModule) LogCookieSyncObject(cso *analytics.CookieSyncObject) {
 		return
 	}
 
-	ch.Add(payload)
+	ch.Push(payload)
 }
 
 func (p *PubstackModule) LogAmpObject(ao *analytics.AmpObject) {
@@ -176,7 +176,7 @@ func (p *PubstackModule) LogAmpObject(ao *analytics.AmpObject) {
 		return
 	}
 
-	ch.Add(payload)
+	ch.Push(payload)
 }
 
 func (p *PubstackModule) refreshConfiguration(waitPeriod time.Duration, end chan os.Signal) {
@@ -209,7 +209,7 @@ func getConfiguration(scope string, intake string) (*Configuration, error) {
 	q.Add("scopeId", scope)
 	u.RawQuery = q.Encode()
 
-	res, err := clients.GetDefaultInstance().Get(u.String())
+	res, err := clients.GetDefaultHttpInstance().Get(u.String())
 	if err != nil {
 		return nil, err
 	}

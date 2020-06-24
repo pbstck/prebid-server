@@ -3,9 +3,6 @@ package eventchannel
 import (
 	"bytes"
 	"compress/gzip"
-	"github.com/prebid/prebid-server/analytics/clients"
-	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"sync"
@@ -15,81 +12,83 @@ import (
 	"github.com/golang/glog"
 )
 
-func (c *EventChannel) resetMetrics() {
-	c.metrics.eventCount = 0
-	c.metrics.bufferSize = 0
-	c.metrics.eventError = 0
-}
-
 type Metrics struct {
 	bufferSize int64
 	eventCount int64
 	eventError int64
 }
-
+type Limit struct {
+	maxByteSize   int64
+	maxEventCount int64
+	maxTime       time.Duration
+}
 type EventChannel struct {
-	endpoint *url.URL
-	gz       *gzip.Writer
-	buff     *bytes.Buffer
-	ch       chan []byte
-	metrics  Metrics
-	mux      sync.Mutex
+	gz   *gzip.Writer
+	buff *bytes.Buffer
+
+	ch      chan []byte
+	metrics Metrics
+	mux     sync.Mutex
+	send    Sender
+	limit   Limit
 }
 
-func NewEventChannel(endpoint *url.URL, maxSize, maxCount int64, maxTime time.Duration) *EventChannel {
-	b := bytes.NewBufferString("")
+func NewEventChannel(sender Sender, maxByteSize, maxEventCount int64, maxTime time.Duration) *EventChannel {
+	b := &bytes.Buffer{}
 	gzw := gzip.NewWriter(b)
 
 	c := EventChannel{
-		endpoint: endpoint,
-		gz:       gzw,
-		buff:     b,
-		ch:       make(chan []byte),
-		metrics:  Metrics{},
+		gz:      gzw,
+		buff:    b,
+		ch:      make(chan []byte),
+		metrics: Metrics{},
+		send:    sender,
+		limit:   Limit{maxByteSize, maxEventCount, maxTime},
 	}
 
 	termCh := make(chan os.Signal)
 	signal.Notify(termCh, os.Interrupt, syscall.SIGTERM)
 
-	go c.batchAndSendEvents(maxSize, maxCount, maxTime, termCh)
+	go c.start(termCh)
 	return &c
 }
 
-func (c *EventChannel) Add(event []byte) {
+func (c *EventChannel) Push(event []byte) {
 	c.ch <- event
 }
 
-func (c *EventChannel) batchAndSendEvents(maxSize, maxCount int64, maxTime time.Duration, termCh chan os.Signal) {
-	ticker := time.NewTicker(maxTime)
+func (c *EventChannel) buffer(event []byte) {
+	c.mux.Lock()
+	defer c.mux.Unlock()
 
-	for {
-		select {
-		// termination received
-		case <-termCh:
-			glog.Info("[pubstack] termination signal received")
-			c.flush()
-			return
-		// event is received
-		case event := <-c.ch:
-			c.mux.Lock()
-			_, err := c.gz.Write(event)
-			c.mux.Unlock()
-
-			if err != nil {
-				c.metrics.eventError++
-				glog.Warning("[pubstack] fail to compress, skip the event")
-				continue
-			}
-			c.metrics.eventCount++
-			c.metrics.bufferSize = int64(c.buff.Len())
-			if c.metrics.eventCount >= maxCount || c.metrics.bufferSize >= maxSize {
-				c.flush()
-			}
-		// time between 2 flushes has passed
-		case <-ticker.C:
-			c.flush()
-		}
+	_, err := c.gz.Write(event)
+	if err != nil {
+		c.metrics.eventError++
+		glog.Warning("[pubstack] fail to compress, skip the event")
+		return
 	}
+
+	c.metrics.eventCount++
+	c.metrics.bufferSize += int64(len(event))
+}
+
+func (c *EventChannel) isBufferFull() bool {
+	if c.metrics.eventCount >= c.limit.maxEventCount || c.metrics.bufferSize >= c.limit.maxByteSize {
+		return true
+	}
+	return false
+}
+
+func (c *EventChannel) reset() {
+	// reset buffer
+	c.gz.Reset(c.buff)
+	c.buff.Reset()
+
+	// reset metrics
+	c.metrics.eventCount = 0
+	c.metrics.bufferSize = 0
+	// FIXME 2020-06-22 Should we reset the error counter?
+	c.metrics.eventError = 0
 }
 
 func (c *EventChannel) flush() {
@@ -112,30 +111,31 @@ func (c *EventChannel) flush() {
 	}
 
 	// reset buffers and writers
-	c.resetMetrics()
-	c.gz.Reset(c.buff)
+	c.reset()
 
-	// send event to intake (async)
-	go post(c.endpoint.String(), payload)
-
+	// send events (async)
+	go c.send(payload)
 }
 
-func post(endpoint string, payload []byte) {
-	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(payload))
-	if err != nil {
-		glog.Error(err)
-		return
-	}
+func (c *EventChannel) start(termCh chan os.Signal) {
+	ticker := time.NewTicker(c.limit.maxTime)
 
-	req.Header.Set("Content-Type", "application/octet-stream")
-	req.Header.Set("Content-Encoding", "gzip")
-
-	resp, err := clients.GetDefaultInstance().Do(req)
-	if err != nil {
-		return
-	}
-	if resp.StatusCode != http.StatusOK {
-		glog.Errorf("[pubstack] Wrong code received %d instead of %d", resp.StatusCode, http.StatusOK)
-		return
+	for {
+		select {
+		// termination received
+		case <-termCh:
+			glog.Info("[pubstack] termination signal received")
+			c.flush()
+			return
+		// event is received
+		case event := <-c.ch:
+			c.buffer(event)
+			if c.isBufferFull() {
+				c.flush()
+			}
+		// time between 2 flushes has passed
+		case <-ticker.C:
+			c.flush()
+		}
 	}
 }
