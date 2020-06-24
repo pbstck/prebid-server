@@ -15,7 +15,6 @@ import (
 type Metrics struct {
 	bufferSize int64
 	eventCount int64
-	eventError int64
 }
 type Limit struct {
 	maxByteSize   int64
@@ -63,7 +62,6 @@ func (c *EventChannel) buffer(event []byte) {
 
 	_, err := c.gz.Write(event)
 	if err != nil {
-		c.metrics.eventError++
 		glog.Warning("[pubstack] fail to compress, skip the event")
 		return
 	}
@@ -87,8 +85,6 @@ func (c *EventChannel) reset() {
 	// reset metrics
 	c.metrics.eventCount = 0
 	c.metrics.bufferSize = 0
-	// FIXME 2020-06-22 Should we reset the error counter?
-	c.metrics.eventError = 0
 }
 
 func (c *EventChannel) flush() {
