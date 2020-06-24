@@ -3,7 +3,6 @@ package pubstack
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"github.com/prebid/prebid-server/analytics/pubstack/eventchannel"
 	"io/ioutil"
 	"os"
@@ -66,7 +65,7 @@ func TestPubstackModule(t *testing.T) {
 	assert.NotEqual(t, err, nil) // should raise an error since  we can't parse args // maxByte
 
 	_, err = NewPubstackModule("scope", "http://localhost:11287", "1h", 100, "90MB", "15z")
-	assert.NotEqual(t, err, nil) // should raise an error since  we can't parse args // maxtime
+	assert.NotEqual(t, err, nil) // should raise an error since  we can't parse args // maxTime
 
 	// Loading OK
 	module, err := NewPubstackModule("scope", "http://localhost:11287", "1h", 100, "90MB", "15m")
@@ -76,13 +75,13 @@ func TestPubstackModule(t *testing.T) {
 	pubstack, ok := module.(*PubstackModule)
 	assert.Equal(t, ok, true) //PBSAnalyticsModule is also a PubstackModule
 	assert.Equal(t, len(pubstack.cfg.Features), 5)
-	assert.Equal(t, pubstack.cfg.Features[auction], true)
+	assert.Equal(t, pubstack.cfg.Features[auction], false)
 	assert.Equal(t, pubstack.cfg.Features[video], false)
 	assert.Equal(t, pubstack.cfg.Features[amp], false)
-	assert.Equal(t, pubstack.cfg.Features[setUiud], false)
+	assert.Equal(t, pubstack.cfg.Features[setUID], false)
 	assert.Equal(t, pubstack.cfg.Features[cookieSync], false)
 
-	assert.Equal(t, len(pubstack.eventChannels), 5)
+	assert.Equal(t, len(pubstack.eventChannels), 0)
 
 	// Process Auction Event
 	data := bytes.Buffer{}
@@ -95,7 +94,7 @@ func TestPubstackModule(t *testing.T) {
 	pubstack.eventChannels[auction] = mockedEventChannel
 	pubstack.LogAuctionObject(mockedEvent)
 	time.Sleep(2 * time.Millisecond) // process channel
-	assert.NotEqual(t, data.Len(), 0)
+	assert.Equal(t, data.Len(), 0)
 
 	// Hot-Reload config
 	newFeatures := make(map[string]bool)
@@ -103,7 +102,7 @@ func TestPubstackModule(t *testing.T) {
 	newFeatures[video] = true
 	newFeatures[amp] = true
 	newFeatures[cookieSync] = false
-	newFeatures[setUiud] = false
+	newFeatures[setUID] = false
 
 	newConfig := &Configuration{
 		ScopeId:  "new-scope",
@@ -111,24 +110,21 @@ func TestPubstackModule(t *testing.T) {
 		Features: newFeatures,
 	}
 
-	oldEventChannel := pubstack.eventChannels[auction]
-
 	pubstack.configCh <- newConfig
 	time.Sleep(2 * time.Millisecond) // process channel
 	assert.Equal(t, len(pubstack.cfg.Features), 5)
 	assert.Equal(t, pubstack.cfg.Features[auction], false)
 	assert.Equal(t, pubstack.cfg.Features[video], true)
 	assert.Equal(t, pubstack.cfg.Features[amp], true)
-	assert.Equal(t, pubstack.cfg.Features[setUiud], false)
+	assert.Equal(t, pubstack.cfg.Features[setUID], false)
 	assert.Equal(t, pubstack.cfg.Features[cookieSync], false)
 	assert.Equal(t, pubstack.cfg.ScopeId, "new-scope")
 	assert.Equal(t, pubstack.cfg.Endpoint, "new-endpoint")
-	assert.False(t, pubstack.eventChannels[auction] == oldEventChannel)
+	assert.Equal(t, len(pubstack.eventChannels), 3)
+
 
 	data.Reset()
-	assert.Equal(t, data.Len(), 0)
 	pubstack.LogAuctionObject(mockedEvent)
 	time.Sleep(2 * time.Millisecond) // process channel (auction is disabled)
-	fmt.Printf("%s\n", data.String())
 	assert.Equal(t, data.Len(), 0)
 }
