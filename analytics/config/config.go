@@ -28,6 +28,8 @@ func NewPBSAnalytics(analytics *config.Analytics) analytics.PBSAnalyticsModule {
 			analytics.Pubstack.Buffers.Timeout)
 		if err == nil {
 			modules = append(modules, pubstackModule)
+		} else {
+			glog.Errorf("Could not initialize PubstackModule:%v", err)
 		}
 	}
 	return modules

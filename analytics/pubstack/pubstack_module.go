@@ -2,11 +2,13 @@ package pubstack
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/prebid/prebid-server/analytics/clients"
 	"net/url"
 	"os"
 	"os/signal"
 	"path"
+	"sync"
 	"syscall"
 	"time"
 
@@ -30,7 +32,7 @@ const (
 	cookieSync = "cookiesync"
 	amp        = "amp"
 	setUiud    = "setuid"
-	VIDEO      = "video"
+	video      = "video"
 )
 
 type bufferConfig struct {
@@ -39,65 +41,64 @@ type bufferConfig struct {
 	size    int64
 }
 
-func newBufferConfig(count int, size, duration string) (*bufferConfig, error) {
-	pDuration, err := time.ParseDuration(duration)
-	if err != nil {
-		return nil, err
-	}
-	pSize, err := units.FromHumanSize(size)
-	if err != nil {
-		return nil, err
-	}
-	return &bufferConfig{
-		pDuration,
-		int64(count),
-		pSize,
-	}, nil
-}
-
 type PubstackModule struct {
 	eventChannels map[string]*eventchannel.EventChannel
+	configCh      chan *Configuration
 	scope         string
 	cfg           *Configuration
 	buffsCfg      *bufferConfig
+	mux           sync.Mutex
 }
 
-func buildEndpointSender(baseUrl string, module string) eventchannel.Sender {
-	endpoint, err := url.Parse(baseUrl)
+func NewPubstackModule(scope, endpoint, configRefreshDelay string, maxEventCount int, maxByteSize, maxTime string) (analytics.PBSAnalyticsModule, error) {
+	glog.Infof("[pubstack] Initializing module scope=%s endpoint=%s\n", scope, endpoint)
+
+	// parse args
+
+	refreshDelay, err := time.ParseDuration(configRefreshDelay)
 	if err != nil {
-		glog.Fatal(err)
-	}
-	endpoint.Path = path.Join(endpoint.Path, "intake", module)
-	return eventchannel.NewHttpSender(endpoint.String())
-}
-
-func (p *PubstackModule) applyConfiguration(cfg *Configuration) {
-	newEventChannelMap := make(map[string]*eventchannel.EventChannel)
-
-	if cfg.Features[amp] {
-		newEventChannelMap[amp] = eventchannel.NewEventChannel(buildEndpointSender(cfg.Endpoint, amp), p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
-	}
-	if cfg.Features[auction] {
-		newEventChannelMap[auction] = eventchannel.NewEventChannel(buildEndpointSender(cfg.Endpoint, auction), p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
-	}
-	if cfg.Features[cookieSync] {
-		newEventChannelMap[cookieSync] = eventchannel.NewEventChannel(buildEndpointSender(cfg.Endpoint, cookieSync), p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
-	}
-	if cfg.Features[VIDEO] {
-		newEventChannelMap[VIDEO] = eventchannel.NewEventChannel(buildEndpointSender(cfg.Endpoint, VIDEO), p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
-	}
-	if cfg.Features[setUiud] {
-		newEventChannelMap[setUiud] = eventchannel.NewEventChannel(buildEndpointSender(cfg.Endpoint, setUiud), p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
+		glog.Errorf("[pubstack] Fail to parse the module args, arg=analytics.pubstack.configuration_refresh_delay; %v", err)
+		return nil, err
 	}
 
-	p.eventChannels = newEventChannelMap
-	p.cfg = cfg
+	bufferCfg, err := newBufferConfig(maxEventCount, maxByteSize, maxTime)
+	if err != nil {
+		glog.Errorf("[pubstack] Fail to parse the module args, arg=analytics.pubstack.buffers; %v", err)
+		return nil, err
+	}
+
+	defaultFeatures := make(map[string]bool)
+	defaultFeatures[auction] = true
+	defaultFeatures[video] = false
+	defaultFeatures[amp] = false
+	defaultFeatures[cookieSync] = false
+	defaultFeatures[setUiud] = false
+
+	defaultConfig := &Configuration{
+		ScopeId:  scope,
+		Endpoint: endpoint,
+		Features: defaultFeatures,
+	}
+
+	pb := PubstackModule{
+		scope:    scope,
+		cfg:      defaultConfig,
+		buffsCfg: bufferCfg,
+		configCh: make(chan *Configuration),
+	}
+
+	pb.initEventChannels()
+	go pb.start()
+
+	// update periodically the config
+	go pb.fetchAndUpdateConfig(refreshDelay)
+
+	glog.Info("[pubstack] Pubstack analytics configured and ready")
+	return &pb, nil
 }
 
 func (p *PubstackModule) LogAuctionObject(ao *analytics.AuctionObject) {
-	// check if we have to send auctions events
-	ch, ok := p.eventChannels[auction]
-	if !ok {
+	if !p.isFeatureEnable(auction) {
 		return
 	}
 
@@ -108,13 +109,11 @@ func (p *PubstackModule) LogAuctionObject(ao *analytics.AuctionObject) {
 		return
 	}
 
-	ch.Push(payload)
+	p.logObject(auction, payload)
 }
 
 func (p *PubstackModule) LogVideoObject(vo *analytics.VideoObject) {
-	// check if we have to send auctions events
-	ch, ok := p.eventChannels[VIDEO]
-	if !ok {
+	if !p.isFeatureEnable(video) {
 		return
 	}
 
@@ -125,13 +124,11 @@ func (p *PubstackModule) LogVideoObject(vo *analytics.VideoObject) {
 		return
 	}
 
-	ch.Push(payload)
+	p.logObject(video, payload)
 }
 
 func (p *PubstackModule) LogSetUIDObject(so *analytics.SetUIDObject) {
-	// check if we have to send auctions events
-	ch, ok := p.eventChannels[setUiud]
-	if !ok {
+	if !p.isFeatureEnable(setUiud) {
 		return
 	}
 
@@ -142,13 +139,11 @@ func (p *PubstackModule) LogSetUIDObject(so *analytics.SetUIDObject) {
 		return
 	}
 
-	ch.Push(payload)
+	p.logObject(setUiud, payload)
 }
 
 func (p *PubstackModule) LogCookieSyncObject(cso *analytics.CookieSyncObject) {
-	// check if we have to send auctions events
-	ch, ok := p.eventChannels[cookieSync]
-	if !ok {
+	if !p.isFeatureEnable(cookieSync) {
 		return
 	}
 
@@ -159,13 +154,11 @@ func (p *PubstackModule) LogCookieSyncObject(cso *analytics.CookieSyncObject) {
 		return
 	}
 
-	ch.Push(payload)
+	p.logObject(cookieSync, payload)
 }
 
 func (p *PubstackModule) LogAmpObject(ao *analytics.AmpObject) {
-	// check if we have to send auctions events
-	ch, ok := p.eventChannels[amp]
-	if !ok {
+	if !p.isFeatureEnable(amp) {
 		return
 	}
 
@@ -176,28 +169,51 @@ func (p *PubstackModule) LogAmpObject(ao *analytics.AmpObject) {
 		return
 	}
 
-	ch.Push(payload)
+	p.logObject(amp, payload)
 }
 
-func (p *PubstackModule) refreshConfiguration(waitPeriod time.Duration, end chan os.Signal) {
+func (p *PubstackModule) fetchAndUpdateConfig(waitPeriod time.Duration) {
+	// TODO it's working?
+	end := make(chan os.Signal)
+	signal.Notify(end, os.Interrupt, syscall.SIGTERM)
+
 	tick := time.NewTicker(waitPeriod)
 
 	for {
 		select {
 		case <-tick.C:
-			config, err := getConfiguration(p.cfg.ScopeId, p.cfg.Endpoint)
+			config, err := fetchConfig(p.cfg.ScopeId, p.cfg.Endpoint)
 			if err != nil {
-				glog.Error("[pubstack] Fail to update configuration")
+				glog.Errorf("[pubstack] fail to fetch configuration: %v", err)
 				continue
 			}
-			p.applyConfiguration(config)
+			p.configCh <- config
 		case <-end:
 			return
 		}
 	}
 }
 
-func getConfiguration(scope string, intake string) (*Configuration, error) {
+func (p *PubstackModule) start() {
+	end := make(chan os.Signal)
+	signal.Notify(end, os.Interrupt, syscall.SIGTERM)
+
+	for {
+		select {
+		case config := <-p.configCh:
+			fmt.Printf("%v\n", config)
+			p.mux.Lock()
+			p.cfg = config
+			p.initEventChannels()
+			p.mux.Unlock()
+		case <-end:
+			return
+		}
+	}
+
+}
+
+func fetchConfig(scope string, intake string) (*Configuration, error) {
 	u, err := url.Parse(intake)
 	if err != nil {
 		return nil, err
@@ -223,36 +239,52 @@ func getConfiguration(scope string, intake string) (*Configuration, error) {
 	return &c, nil
 }
 
-func NewPubstackModule(scope, intake, refreshConf string, evtCount int, size, duration string) (analytics.PBSAnalyticsModule, error) {
-	glog.Infof("[pubstack] Initializing pubstack module with scope: %s intake %s\n", scope, intake)
-
-	refreshDelay, err := time.ParseDuration(refreshConf)
+func newBufferConfig(count int, size, duration string) (*bufferConfig, error) {
+	pDuration, err := time.ParseDuration(duration)
 	if err != nil {
-		glog.Error("[pubstack] Fail to read configuration refresh duration")
 		return nil, err
 	}
-
-	config, err := getConfiguration(scope, intake)
+	pSize, err := units.FromHumanSize(size)
 	if err != nil {
-		glog.Errorf("[pubstack] Fail to initialize pubstack module, fail to acquire configuration\n")
 		return nil, err
 	}
+	return &bufferConfig{
+		pDuration,
+		int64(count),
+		pSize,
+	}, nil
+}
 
-	bufferCfg, err := newBufferConfig(evtCount, size, duration)
-
-	pb := PubstackModule{
-		scope:    scope,
-		cfg:      config,
-		buffsCfg: bufferCfg,
+func buildEndpointSender(baseUrl string, module string) eventchannel.Sender {
+	endpoint, err := url.Parse(baseUrl)
+	if err != nil {
+		glog.Fatal(err)
 	}
+	endpoint.Path = path.Join(endpoint.Path, "intake", module)
+	return eventchannel.NewHttpSender(endpoint.String())
+}
 
-	pb.applyConfiguration(config)
+func (p *PubstackModule) initEventChannels() {
+	if p.eventChannels == nil {
+		p.eventChannels = make(map[string]*eventchannel.EventChannel)
+	}
+	p.eventChannels[amp] = eventchannel.NewEventChannel(buildEndpointSender(p.cfg.Endpoint, amp), p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
+	p.eventChannels[auction] = eventchannel.NewEventChannel(buildEndpointSender(p.cfg.Endpoint, auction), p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
+	p.eventChannels[cookieSync] = eventchannel.NewEventChannel(buildEndpointSender(p.cfg.Endpoint, cookieSync), p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
+	p.eventChannels[video] = eventchannel.NewEventChannel(buildEndpointSender(p.cfg.Endpoint, video), p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
+	p.eventChannels[setUiud] = eventchannel.NewEventChannel(buildEndpointSender(p.cfg.Endpoint, setUiud), p.buffsCfg.size, p.buffsCfg.count, p.buffsCfg.timeout)
+}
 
-	// handle termination in goroutine
-	endCh := make(chan os.Signal)
-	signal.Notify(endCh, os.Interrupt, syscall.SIGTERM)
-	glog.Info("[pubstack] Pubstack analytics configured and ready")
-	go pb.refreshConfiguration(refreshDelay, endCh)
+func (p *PubstackModule) isFeatureEnable(feature string) bool {
+	val, ok := p.cfg.Features[feature]
+	if !ok || !val {
+		return false
+	}
+	return true
+}
 
-	return &pb, nil
+func (p *PubstackModule) logObject(feature string, payload []byte) {
+	p.mux.Lock()
+	defer p.mux.Unlock()
+	p.eventChannels[feature].Push(payload)
 }
