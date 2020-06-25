@@ -2,7 +2,6 @@ package pubstack
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/prebid/prebid-server/analytics/clients"
 	"net/url"
@@ -58,12 +57,12 @@ func NewPubstackModule(scope, endpoint, configRefreshDelay string, maxEventCount
 
 	refreshDelay, err := time.ParseDuration(configRefreshDelay)
 	if err != nil {
-		return nil, errors.New(fmt.Sprintf("Fail to parse the module args, arg=analytics.pubstack.configuration_refresh_delay; %v", err))
+		return nil, fmt.Errorf("fail to parse the module args, arg=analytics.pubstack.configuration_refresh_delay, :%v", err)
 	}
 
 	bufferCfg, err := newBufferConfig(maxEventCount, maxByteSize, maxTime)
 	if err != nil {
-		return nil, errors.New(fmt.Sprintf("Fail to parse the module args, arg=analytics.pubstack.buffers; %v", err))
+		return nil, fmt.Errorf("fail to parse the module args, arg=analytics.pubstack.buffers, :%v", err)
 	}
 
 	defaultFeatures := make(map[string]bool)
@@ -210,6 +209,7 @@ func (p *PubstackModule) start(refreshDelay time.Duration, endCh chan os.Signal)
 			p.cfg = config
 			p.initEventChannels()
 			p.mux.Unlock()
+			glog.Infof("[pubstack] Updating config: %v", p.cfg)
 		case <-endCh:
 			return
 		}
