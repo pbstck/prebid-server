@@ -853,7 +853,7 @@ func SetupViper(v *viper.Viper, filename string) {
 
 	v.SetDefault("max_request_size", 1024*256)
 	v.SetDefault("analytics.file.filename", "")
-	v.SetDefault("analytics.pubstack.endpoint", "https://openrtb.preview.pubstack.io/v1/openrtb2")
+	v.SetDefault("analytics.pubstack.endpoint", "https://s2s.pbstck.com/v1")
 	v.SetDefault("analytics.pubstack.scopeid", "change-me")
 	v.SetDefault("analytics.pubstack.enabled", false)
 	v.SetDefault("analytics.pubstack.configuration_refresh_delay", "2h")
